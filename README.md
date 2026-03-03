@@ -1,251 +1,226 @@
-# SMPP Server Simulator
+# High TPS SMPP Simulator (kqueue / epoll)
 
-A lightweight, heavy-load-safe **SMPP 3.4 simulator** written in C++.
-This server is designed for functional testing, load testing, and integration testing of SMPP clients (ESME applications).
+A high-performance SMPP 3.4 simulator designed for load testing ESME connectors at very high TPS.
 
-It supports:
+Supports:
 
-* `bind_transceiver`
-* `submit_sm`
-* Automatic `deliver_sm` (DLR simulation)
-* Multiple concurrent TCP sessions
-* Non-blocking I/O via `select()`
-* Simple delivery queue with delayed receipts
-
----
-
-## Build Instructions
-
-Compile using `g++` with C++11:
-
-```bash
-g++ -std=c++11 smscsimulator.cpp -o smppserver
-```
-
-This produces the executable:
-
-```
-./smppserver
-```
-
----
-
-## Run
-
-```bash
-./smppserver
-```
-
-Server listens on:
-
-```
-Port: 2775
-Host: 0.0.0.0 (all interfaces)
-```
-
-Console output example:
-
-```
-SMPP Server listening on 2775
-Client connected
-Bind OK
-Submit OK
-Sending DeliverSM
-```
-
----
-
-## Supported SMPP Operations
-
-### 1️⃣ BindTransceiver (0x00000009)
-
-When the client sends a `bind_transceiver`:
-
-* Server responds with `bind_transceiver_resp`
-* System ID returned: `"SMSC"`
-* Status: `ESME_ROK (0x00000000)`
-
----
-
-### 2️⃣ SubmitSM (0x00000004)
-
-When the client submits a message:
-
-* Server responds with `submit_sm_resp`
-* Message ID returned: `"abc123"`
-* Delivery receipt scheduled after **3 seconds**
-
----
-
-### 3️⃣ DeliverSM (0x00000005)
-
-After 3 seconds, the simulator sends a delivery receipt:
-
-Example receipt payload:
-
-```
-id:abc123 sub:001 dlvrd:001 submit date:2402241200 done date:2402241205 stat:DELIVRD err:000 text:HelloWorldTest12
-```
-
-This simulates a successful delivery (`stat:DELIVRD`).
+* macOS / BSD → `kqueue`
+* Linux → `epoll`
+* Non-blocking sockets
+* Large kernel buffers
+* Configurable DLR delay
+* Efficient session handling
+* Timed delivery receipts (DLR)
 
 ---
 
 ## Architecture Overview
 
-### Event Loop
+This simulator is:
 
-* Uses `select()` for multiplexed I/O
-* Supports up to 100 concurrent connections
-* Non-blocking polling every 1 second
+* Single-threaded event-driven
+* Fully non-blocking
+* Designed for high concurrency
+* Optimized for high window sizes
+* Suitable for TPS stress testing
 
-### Session Model
+### Event Loop Backend
 
-Each TCP connection gets:
+| Platform | Event Engine |
+| -------- | ------------ |
+| macOS    | kqueue       |
+| FreeBSD  | kqueue       |
+| Linux    | epoll        |
 
-```
-SMPPSession
- ├── Bound state
- ├── Delivery queue
- └── PDU handler
-```
-
-### Delivery Queue
-
-* Stores message ID + scheduled delivery time
-* Checked every loop iteration
-* Sends DLR when `deliverAt <= now`
+The networking logic is identical across platforms. Only the event loop backend differs.
 
 ---
 
-## Heavy Load Safety
+## Supported SMPP Operations
+
+| Command          | Supported |
+| ---------------- | --------- |
+| bind_transceiver | ✅         |
+| submit_sm        | ✅         |
+| enquire_link     | ✅         |
+| deliver_sm (DLR) | ✅         |
+
+---
+
+## Default Behavior
+
+* Port: `2775`
+* DLR delay: 2 seconds
+* Max events: 4096
+* Socket buffers: 4MB
+* TCP_NODELAY enabled
+* Fully non-blocking
+
+---
+
+## Directory Structure Example
+
+```
+.
+├── main_kqueue.cpp     # macOS / BSD version
+├── main_epoll.cpp      # Linux version
+└── README.md
+```
+
+You may rename them as desired.
+
+---
+
+# Building
+
+## macOS / BSD (kqueue)
+
+```bash
+g++ -O3 -std=c++11 main_kqueue.cpp -o smppserver
+```
+
+## Linux (epoll)
+
+```bash
+g++ -O3 -std=c++11 main_epoll.cpp -o smppserver
+```
+
+Optional recommended flags for performance:
+
+```bash
+g++ -O3 -march=native -flto -std=c++11 main_epoll.cpp -o smppserver
+```
+
+---
+
+# Running
+
+```bash
+./smppserver
+```
+
+Expected output:
+
+```
+High TPS SMPP Server with DLR on 2775
+```
+
+---
+
+# Performance Characteristics
 
 This simulator is designed to:
 
-* Handle multiple concurrent binds
-* Process high volumes of `submit_sm`
-* Avoid SIGPIPE crashes
-* Fully drain socket buffers with `sendAll()` / `recvAll()`
-* Keep delivery scheduling independent per session
+* Handle thousands of concurrent connections
+* Sustain high submit_sm throughput
+* Respond immediately to bind and enquire_link
+* Generate timed DLR asynchronously
+
+Performance depends on:
+
+* OS kernel tuning
+* File descriptor limits
+* CPU frequency
+* NIC offloading
+* Window size of ESME
 
 ---
 
-## Default Configuration
+# Recommended OS Tuning
 
-| Parameter  | Value       |
-| ---------- | ----------- |
-| Port       | 2775        |
-| Bind Mode  | Transceiver |
-| Message ID | `abc123`    |
-| DLR Delay  | 3 seconds   |
-| DLR Status | DELIVRD     |
-| System ID  | SMSC        |
-
----
-
-## Intended Use Cases
-
-* SMPP client integration testing
-* Load testing TPS behavior
-* Window size tuning validation
-* DLR handling validation
-* Broker / queue stress testing
-* SMPP failover logic validation
-
----
-
-## Limitations
-
-This is a **minimal simulator**, not a full SMPP stack.
-
-Not implemented:
-
-* EnquireLink
-* Unbind
-* SubmitSM error codes
-* TLV parsing
-* Window management
-* Async read/write threads
-* Real message ID generation
-* Configurable DLR timing
-* Bind authentication
-
----
-
-## Example Testing Scenarios
-
-### Functional Test
-
-1. Start server
-2. Connect SMPP client
-3. Send bind_transceiver
-4. Submit SMS
-5. Verify:
-
-   * submit_sm_resp received
-   * deliver_sm received after ~3 seconds
-
----
-
-### Load Test
-
-Run your SMPP client with:
-
-* High TPS (e.g. 100–500)
-* Window size > 10
-* Multiple concurrent connections
-
-Observe:
-
-* Stability
-* Delivery timing
-* No server crashes
-
----
-
-## Code Structure Summary
+## macOS
 
 ```
-main()
- ├── Accept connections
- ├── Maintain session map
- ├── Run session read handlers
- └── Trigger timed delivery events
+ulimit -n 200000
 ```
 
-Core Components:
+## Linux
 
-* `sendAll()` – safe full-buffer send
-* `recvAll()` – safe full-buffer read
-* `DeliverQueue` – scheduled DLR manager
-* `SMPPSession` – PDU handler
-
----
-
-## Extension Ideas
-
-If you want to evolve this into a more complete simulator:
-
-* Add `enquire_link`
-* Add configurable DLR delay
-* Add message ID auto-increment
-* Add random error simulation
-* Add window control
-* Add throughput limiting
-* Add metrics endpoint
-* Add logging levels
-* Add multi-threaded epoll version
+```
+ulimit -n 200000
+sysctl -w net.core.somaxconn=65535
+sysctl -w net.ipv4.tcp_tw_reuse=1
+sysctl -w net.core.rmem_max=4194304
+sysctl -w net.core.wmem_max=4194304
+```
 
 ---
 
-## Summary
+# Load Testing Example
 
-This is a **simple, deterministic, high-stability SMPP simulator** ideal for:
+Using curl (HTTP wrapper example if applicable):
 
-* Backend SMS gateway testing
-* TPS benchmarking
-* DLR logic validation
-* Client performance testing
+```bash
+curl -X POST http://localhost:8080/insms \
+  -H "Content-Type: application/json" \
+  -d '{
+        "transaction_id": "TX123456789",
+        "sender": "Taz",
+        "destination": "+1234567890",
+        "message": "Testing high TPS",
+        "test": "false"
+      }'
+```
 
-It is intentionally minimal to remain predictable under heavy load.
+For SMPP load testing, use:
 
+* smppclient tools
+* custom Go SMPP connector
+* jmeter SMPP plugin
+* your internal connector
+
+---
+
+# Design Notes
+
+* Event loop tick = 5ms
+* DLR scheduling uses priority_queue
+* O(N sessions) DLR scanning per tick
+* Level-triggered event model
+* No thread contention
+* No locking
+
+---
+
+# Production Considerations
+
+For extreme TPS (100k+):
+
+* Use SO_REUSEPORT (multi-process model)
+* CPU pin processes
+* Consider edge-triggered epoll
+* Consider io_uring (Linux only)
+* Add send queue buffering
+* Use hugepages (optional)
+
+---
+
+# Limitations
+
+* Single-threaded
+* No persistence
+* No authentication validation
+* Basic SMPP parsing
+* No throttling logic
+
+This is a simulator, not a production SMSC.
+
+---
+
+# SMPP Version
+
+Implements partial SMPP 3.4 behavior.
+
+---
+
+# License
+
+Internal testing tool. No warranty provided.
+
+---
+
+# Author
+
+Tahseen Jamal
+
+---
