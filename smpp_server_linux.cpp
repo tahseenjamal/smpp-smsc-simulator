@@ -75,6 +75,8 @@ struct Session {
     std::priority_queue<DeliveryItem, std::vector<DeliveryItem>,
                         CompareDelivery>
         deliveryQueue;
+       Session() : fd(-1), bufferLen(0) {}
+    Session(int f) : fd(f), bufferLen(0) {}
 };
 
 //////////////////////////////////////////////////////////////
