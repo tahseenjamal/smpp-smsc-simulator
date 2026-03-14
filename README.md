@@ -73,12 +73,16 @@ You may rename them as desired.
 
 # Building
 
-## macOS / BSD (kqueue)
+## macOS (kqueue)
 
 ```bash
-g++ -O3 -std=c++11 main_kqueue.cpp -o smppserver
+g++ -O3 -std=c++11 smpp_server_mac.cpp -o smppserver
 ```
+## BSD (kqueue)
 
+```bash
+g++ -O3 -std=c++17 smpp_server_bsd.cpp -o smppserver
+```
 ## Linux (epoll)
 
 ```bash
